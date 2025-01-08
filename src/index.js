@@ -6,63 +6,49 @@ const db = require('./db');
 const messagesRouter = require('./routes/messages');
 require('dotenv').config();
 
-console.log('Database URL:', process.env.DATABASE_URL);
-
 const app = express();
 const httpServer = createServer(app);
-const io = new Server(httpServer, {
-  cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
-    credentials: true,
-    methods: ['GET', 'POST']
-  }
-});
 
-// Make io accessible to our routers
-app.set('io', io);
-
-// Middleware
+// Update CORS to use correct port
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
-  credentials: true
+  origin: 'http://localhost:5173'
 }));
+
+// Add this line to parse JSON bodies
 app.use(express.json());
 
-// Routes
-app.use('/api/messages', messagesRouter);
-
-// Basic health check route that also checks DB connection
-app.get('/health', async (req, res) => {
-  try {
-    const result = await db.query('SELECT NOW()');
-    res.status(200).json({ 
-      status: 'ok',
-      database: 'connected',
-      timestamp: result.rows[0].now
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      status: 'error',
-      message: 'Database connection failed',
-      error: error.message
-    });
+// Create Socket.io server
+const io = new Server(httpServer, {
+  cors: {
+    origin: 'http://localhost:5173'
   }
 });
 
-// Socket.io connection handler
+// Test route
+app.get('/test', (req, res) => {
+  res.json({ message: 'Test successful' });
+});
+
+app.use('/api/messages', messagesRouter);
+app.set('io', io);
+
+// Socket.io connection handler with more logging
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
-  // Join a channel room
   socket.on('join_channel', (channelId) => {
-    socket.join(`channel_${channelId}`);
-    console.log(`Socket ${socket.id} joined channel ${channelId}`);
+    const room = `channel_${channelId}`;
+    socket.join(room);
+    console.log(`Socket ${socket.id} joined ${room}`);
+    
+    // Log all rooms this socket is in
+    console.log('Socket rooms:', [...socket.rooms]);
   });
 
-  // Leave a channel room
   socket.on('leave_channel', (channelId) => {
-    socket.leave(`channel_${channelId}`);
-    console.log(`Socket ${socket.id} left channel ${channelId}`);
+    const room = `channel_${channelId}`;
+    socket.leave(room);
+    console.log(`Socket ${socket.id} left ${room}`);
   });
 
   socket.on('disconnect', () => {

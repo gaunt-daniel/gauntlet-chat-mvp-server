@@ -70,20 +70,31 @@ router.post('/channel/:channelId', async (req, res) => {
     
     console.log('Successfully created message:', result.rows[0]);
     
-    // Emit the new message to all connected clients in this channel
-    req.app.get('io').to(`channel_${channelId}`).emit('new_message', result.rows[0]);
+    // Get the full message data including user name
+    const messageWithUser = await db.query(
+      `SELECT messages.*, users.name as user_name 
+       FROM messages 
+       LEFT JOIN users ON messages.user_id = users.user_id 
+       WHERE message_id = $1`,
+      [result.rows[0].message_id]
+    );
+
+    const fullMessage = messageWithUser.rows[0];
+    console.log('About to emit message:', fullMessage);
+    console.log('To channel:', `channel_${channelId}`);
     
-    res.status(201).json(result.rows[0]);
+    const room = `channel_${channelId}`;
+    const sockets = await req.app.get('io').in(room).allSockets();
+    console.log(`Number of clients in ${room}:`, sockets.size);
+    console.log('Emitting to room:', room);
+    
+    // Emit to socket
+    req.app.get('io').to(room).emit('new_message', fullMessage);
+    
+    res.status(201).json(fullMessage);
   } catch (error) {
-    console.error('Detailed error in POST /channel/:channelId:', {
-      message: error.message,
-      stack: error.stack,
-      code: error.code
-    });
-    res.status(500).json({ 
-      error: 'Failed to send message',
-      details: error.message
-    });
+    console.error('Error in POST /messages:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
