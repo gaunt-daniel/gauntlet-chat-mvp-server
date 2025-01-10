@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const authenticateToken = require('../middleware/auth');
 
 // Get messages for a channel
 router.get('/channel/:channelId', async (req, res) => {
@@ -32,68 +33,23 @@ router.get('/channel/:channelId', async (req, res) => {
 });
 
 // Send a message to a channel
-router.post('/channel/:channelId', async (req, res) => {
+router.post('/channel/:channelId', authenticateToken, async (req, res) => {
   try {
-    const { channelId } = req.params;
-    const { content, userId } = req.body;
-    
-    console.log('Attempting to create message:', {
-      channelId,
-      content,
-      userId
+    console.log('Creating message:', {
+      channelId: req.params.channelId,
+      userId: req.user.uid,
+      content: req.body.content
     });
 
-    // First verify the channel exists
-    const channelCheck = await db.query(
-      'SELECT * FROM channels WHERE channel_id = $1',
-      [channelId]
-    );
-    if (channelCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Channel not found' });
-    }
-
-    // Then verify the user exists
-    const userCheck = await db.query(
-      'SELECT * FROM users WHERE user_id = $1',
-      [userId]
-    );
-    if (userCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
     const result = await db.query(
-      `INSERT INTO messages (channel_id, user_id, content) 
-       VALUES ($1, $2, $3) 
-       RETURNING *`,
-      [channelId, userId, content]
-    );
-    
-    console.log('Successfully created message:', result.rows[0]);
-    
-    // Get the full message data including user name
-    const messageWithUser = await db.query(
-      `SELECT messages.*, users.name as user_name 
-       FROM messages 
-       LEFT JOIN users ON messages.user_id = users.user_id 
-       WHERE message_id = $1`,
-      [result.rows[0].message_id]
+      'INSERT INTO messages (channel_id, user_id, content) VALUES ($1, $2, $3) RETURNING *',
+      [req.params.channelId, req.user.uid, req.body.content]
     );
 
-    const fullMessage = messageWithUser.rows[0];
-    console.log('About to emit message:', fullMessage);
-    console.log('To channel:', `channel_${channelId}`);
-    
-    const room = `channel_${channelId}`;
-    const sockets = await req.app.get('io').in(room).allSockets();
-    console.log(`Number of clients in ${room}:`, sockets.size);
-    console.log('Emitting to room:', room);
-    
-    // Emit to socket
-    req.app.get('io').to(room).emit('new_message', fullMessage);
-    
-    res.status(201).json(fullMessage);
+    console.log('Created message:', result.rows[0]);
+    res.json(result.rows[0]);
   } catch (error) {
-    console.error('Error in POST /messages:', error);
+    console.error('Error creating message:', error);
     res.status(500).json({ error: error.message });
   }
 });

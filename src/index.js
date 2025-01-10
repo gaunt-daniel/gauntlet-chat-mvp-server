@@ -5,6 +5,7 @@ const cors = require('cors');
 const db = require('./db');
 const messagesRouter = require('./routes/messages');
 require('dotenv').config();
+const authenticateToken = require('./middleware/auth');
 
 const app = express();
 const httpServer = createServer(app);
@@ -29,7 +30,7 @@ app.get('/test', (req, res) => {
   res.json({ message: 'Test successful' });
 });
 
-app.use('/api/messages', messagesRouter);
+app.use('/api/messages', authenticateToken, messagesRouter);
 app.set('io', io);
 
 // Socket.io connection handler with more logging
@@ -53,6 +54,18 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
+  });
+
+  socket.on('message_sent', async (message) => {
+    try {
+      // Process message
+      // Emit back to the sender when done
+      socket.emit('message_processed');
+      // Broadcast to others in the channel
+      socket.to(`channel_${message.channelId}`).emit('new_message', message);
+    } catch (error) {
+      socket.emit('message_error', error.message);
+    }
   });
 });
 
